@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Creation of SOC
-===============
+Creation of SOC  (singlet and triplet)
+======================================
 
-Copies every ".com" file found in a folder named "singlet" into its own
-sub-folder inside a folder named "soc":
+Copies every ".com" file from the folders named "singlet" and "triplet"
+into its own sub-folder inside "soc_singlet" and "soc_triplet":
 
-    .../scan/singlet/g1.com   -->   .../soc/g1.com/g1.com
-    .../scan/singlet/g2.com   -->   .../soc/g2.com/g2.com
-    ... one sub-folder for every .com file in singlet.
+    .../scan/singlet/g1.com   -->   .../soc_singlet/g1.com/g1.com
+    .../scan/singlet/g2.com   -->   .../soc_singlet/g2.com/g2.com
+    .../scan/triplet/g1.com   -->   .../soc_triplet/g1.com/g1.com
+    .../scan/triplet/g2.com   -->   .../soc_triplet/g2.com/g2.com
+    ... one sub-folder for every .com file. Singlet first, then triplet.
 
 HOW TO RUN (Ubuntu terminal)
     python3 creation_of_soc.py
 
 At the start the program asks two things:
-    1. The path of the folder that contains "singlet"
-       (or the path of the singlet folder itself).
-    2. The path of the folder in which "soc" should be created
-       (if that path already ends in "soc", that folder is used).
+    1. The path of the folder that contains "singlet" and "triplet"
+       (for example jana/pp/opt/b3lyp/scan). Both folders are found
+       automatically; if they are not directly inside, the sub-folders
+       are searched. If only one of them exists, only that one is done.
+    2. The path of the folder in which "soc_singlet" and "soc_triplet"
+       should be created.
 
 Type paths the same way as in the terminal, for example:
     jana/pp/opt/b3lyp/scan          (from the folder you are in now)
@@ -27,9 +31,9 @@ Type paths the same way as in the terminal, for example:
 The Tab key completes folder names, like in the terminal.
 
 SAFETY
-    * Files in "singlet" are only read. They are never changed or moved.
+    * Files in "singlet" and "triplet" are only read, never changed or moved.
     * Nothing is created or copied until you confirm the summary.
-    * Files already in soc are never replaced without asking you.
+    * Files already in the soc folders are never replaced without asking you.
     * Every copy is compared byte by byte with the original.
     * Running the program again is safe: files already copied are skipped.
 """
@@ -54,13 +58,13 @@ import textwrap
 # ---------------------------------------------------------------------------
 # Settings (normally nothing needs to be changed here)
 # ---------------------------------------------------------------------------
-SINGLET_FOLDER_NAME = "singlet"  # folder to look for (Singlet / SINGLET also accepted)
-SOC_FOLDER_NAME = "soc"          # folder that is created
+STATES = ("singlet", "triplet")  # folders to look for, done in this order
+SOC_PREFIX = "soc_"              # soc folders are named soc_singlet, soc_triplet
 FILE_EXTENSION = ".com"          # files that are copied (.COM also accepted)
-# True  -> soc/g1.com/g1.com   (sub-folder named exactly like the file)
-# False -> soc/g1/g1.com       (sub-folder named without ".com")
+# True  -> soc_singlet/g1.com/g1.com   (sub-folder named exactly like the file)
+# False -> soc_singlet/g1/g1.com       (sub-folder named without ".com")
 KEEP_EXTENSION_IN_FOLDER_NAME = True
-MAX_SEARCH_DEPTH = 10            # how many levels deep to search for "singlet"
+MAX_SEARCH_DEPTH = 10            # how many levels deep to search
 
 LINE = "=" * 70
 
@@ -286,59 +290,71 @@ def is_inside(path, folder):
 
 
 # ---------------------------------------------------------------------------
-# Step 1: the singlet folder
+# Step 1: find the singlet and triplet folders
 # ---------------------------------------------------------------------------
-def is_singlet_name(name):
-    return name.lower() == SINGLET_FOLDER_NAME.lower()
+class Source(object):
+    """One state (singlet or triplet): where its .com files are and where they go."""
+
+    def __init__(self, state, folder, com_files):
+        self.state = state          # "singlet" or "triplet"
+        self.folder = folder        # .../scan/singlet
+        self.com_files = com_files  # ["g1.com", "g2.com", ...]
+        self.soc_dir = None         # .../soc_singlet (set in step 2)
+        self.jobs = []
 
 
-def search_for_singlet(top):
-    """Look for folders named singlet anywhere below top."""
+def soc_name(state):
+    return SOC_PREFIX + state
+
+
+def state_of(name):
+    """'singlet' or 'triplet' if the folder name is one of them, else None."""
+    for state in STATES:
+        if name.lower() == state.lower():
+            return state
+    return None
+
+
+def search_for(top, state):
+    """Look for folders named state (e.g. 'triplet') anywhere below top."""
     found = []
     top_depth = top.rstrip(os.sep).count(os.sep)
     for dirpath, dirnames, _ in os.walk(top):
         depth = dirpath.rstrip(os.sep).count(os.sep) - top_depth
         keep = []
         for name in dirnames:
-            if is_singlet_name(name):
-                found.append(os.path.join(dirpath, name))  # not searched inside
-            elif not name.startswith(".") and depth < MAX_SEARCH_DEPTH:
-                keep.append(name)
+            if state_of(name) == state:
+                found.append(os.path.join(dirpath, name))
+            elif (state_of(name) is None and not name.startswith(".")
+                  and depth < MAX_SEARCH_DEPTH):
+                keep.append(name)  # singlet/triplet folders are not searched inside
         dirnames[:] = keep
     return natural_sorted(found)
 
 
-def locate_singlet(folder):
-    """Find the singlet folder at or below the given folder, or None."""
-    if is_singlet_name(os.path.basename(folder)):
-        return folder
-    try:
-        names = os.listdir(folder)
-    except OSError as err:
-        warn("Cannot open this folder ({0}):  {1}".format(err.strerror or err, folder))
-        return None
+def locate(folder, names, state):
+    """Find the folder for one state inside folder (names = its contents), or None."""
     direct = natural_sorted(
         os.path.join(folder, name) for name in names
-        if is_singlet_name(name) and os.path.isdir(os.path.join(folder, name)))
+        if state_of(name) == state and os.path.isdir(os.path.join(folder, name)))
     if len(direct) == 1:
         return direct[0]
     if len(direct) > 1:
         return direct[ask_choice(
-            "  More than one '{0}' folder is here. Which one?".format(SINGLET_FOLDER_NAME),
-            direct)]
+            "  More than one '{0}' folder is here. Which one?".format(state), direct)]
 
-    say("  There is no '{0}' folder directly inside  {1}".format(SINGLET_FOLDER_NAME, folder))
-    say("  Searching the sub-folders ...")
-    found = search_for_singlet(folder)
+    say("  No '{0}' folder directly inside, searching the sub-folders ...".format(state))
+    found = search_for(folder, state)
     if not found:
-        warn("No folder named '{0}' was found inside:  {1}".format(SINGLET_FOLDER_NAME, folder))
         return None
     if len(found) == 1:
         say("  Found:  " + found[0])
-        return found[0] if ask_yes_no("  Use this folder?") else None
+        if ask_yes_no("  Use this as the '{0}' folder?".format(state)):
+            return found[0]
+        return None
     choice = ask_choice(
-        "  Several '{0}' folders were found. Which one?".format(SINGLET_FOLDER_NAME),
-        found + ["None of these"])
+        "  Several '{0}' folders were found. Which one?".format(state),
+        found + ["None of these (skip {0})".format(state)])
     return found[choice] if choice < len(found) else None
 
 
@@ -360,35 +376,28 @@ def list_com_files(folder):
     return natural_sorted(wanted), len(names) - len(wanted)
 
 
-def ask_for_singlet():
-    say("")
-    say(LINE)
-    say("STEP 1 of 2:  Where is the '{0}' folder?".format(SINGLET_FOLDER_NAME))
-    say("  Type the path of the folder that CONTAINS '{0}'".format(SINGLET_FOLDER_NAME))
-    say("  (for example:  jana/pp/opt/b3lyp/scan )")
-    say("  or the path of the '{0}' folder itself.".format(SINGLET_FOLDER_NAME))
-    say("  Tab completes folder names. You are now in:  " + current_folder())
-    say(LINE)
-    while True:
-        raw = ask("Path to {0}: ".format(SINGLET_FOLDER_NAME))
-        if not raw.strip():
-            warn("Please type a path (or press Ctrl+C to stop).")
+def find_sources(folder):
+    """Find singlet and triplet (in that order) in folder. Returns a list of Source."""
+    try:
+        names = os.listdir(folder)
+    except OSError as err:
+        warn("Cannot open this folder ({0}):  {1}".format(err.strerror or err, folder))
+        return []
+    sources = []
+    for state in STATES:
+        say("")
+        say("  --- {0} ---".format(state.upper()))
+        path = locate(folder, names, state)
+        if path is None:
+            say("  No '{0}' folder found.".format(state))
             continue
-        folder = existing_folder_from(raw)
-        if folder is None:
-            continue
-        singlet = locate_singlet(folder)
-        if singlet is None:
-            continue
-        com_files, others = list_com_files(singlet)
+        com_files, others = list_com_files(path)
         if com_files is None:
             continue
         if not com_files:
-            warn("There are no '{0}' files in:  {1}".format(FILE_EXTENSION, singlet))
-            warn("Please type another path.")
+            warn("There are no '{0}' files in:  {1}".format(FILE_EXTENSION, path))
             continue
-        say("")
-        say("  OK, singlet folder:  " + singlet)
+        say("  OK, {0} folder:  {1}".format(state, path))
         say("  {0} '{1}' file(s) found:".format(len(com_files), FILE_EXTENSION))
         for row in textwrap.wrap(", ".join(com_files), width=64,
                                  break_long_words=False, break_on_hyphens=False):
@@ -396,14 +405,53 @@ def ask_for_singlet():
         if others:
             say("  ({0} other item(s) in this folder are not '{1}' files and are ignored.)"
                 .format(others, FILE_EXTENSION))
-        return singlet, com_files
+        sources.append(Source(state, path, com_files))
+    return sources
+
+
+def ask_for_sources():
+    say("")
+    say(LINE)
+    say("STEP 1 of 2:  Where are the 'singlet' and 'triplet' folders?")
+    say("  Type the path of the folder that CONTAINS them")
+    say("  (for example:  jana/pp/opt/b3lyp/scan ).")
+    say("  Both are found automatically. Tab completes folder names.")
+    say("  You are now in:  " + current_folder())
+    say(LINE)
+    while True:
+        raw = ask("Path to singlet/triplet: ")
+        if not raw.strip():
+            warn("Please type a path (or press Ctrl+C to stop).")
+            continue
+        folder = existing_folder_from(raw)
+        if folder is None:
+            continue
+        if state_of(os.path.basename(folder)):
+            say("  This is the '{0}' folder itself, so both are looked for in the".format(
+                os.path.basename(folder)))
+            say("  folder above it:  " + os.path.dirname(folder))
+            folder = os.path.dirname(folder)
+        sources = find_sources(folder)
+        if not sources:
+            say("")
+            warn("No 'singlet' or 'triplet' folder with '{0}' files was found in:  {1}"
+                 .format(FILE_EXTENSION, folder))
+            warn("Please type another path.")
+            continue
+        found_states = [source.state for source in sources]
+        for state in STATES:
+            if state not in found_states:
+                say("")
+                warn("No usable '{0}' folder was found, so only '{1}' will be done."
+                     .format(state, found_states[0]))
+        return sources
 
 
 # ---------------------------------------------------------------------------
-# Step 2: where to create soc
+# Step 2: where to create soc_singlet and soc_triplet
 # ---------------------------------------------------------------------------
 def soc_location_problem(soc_dir):
-    """Return a message if soc cannot be created/used at soc_dir, else None."""
+    """Return a message if a soc folder cannot be created/used at soc_dir, else None."""
     if os.path.lexists(soc_dir) and not os.path.isdir(soc_dir):
         return "Something that is not a folder is already called '{0}':  {1}".format(
             os.path.basename(soc_dir), soc_dir)
@@ -420,16 +468,17 @@ def soc_location_problem(soc_dir):
     return None
 
 
-def ask_for_soc_location(singlet):
+def ask_for_soc_location(sources):
+    """Ask where the soc folders go and set source.soc_dir for every source."""
+    names = " and ".join("'" + soc_name(source.state) + "'" for source in sources)
     say("")
     say(LINE)
-    say("STEP 2 of 2:  Where should the '{0}' folder be created?".format(SOC_FOLDER_NAME))
-    say("  Type the path of the folder in which '{0}' should be made".format(SOC_FOLDER_NAME))
+    say("STEP 2 of 2:  Where should {0} be created?".format(names))
+    say("  Type the path of the folder in which they should be made")
     say("  (for example:  jana/pp/opt/b3lyp/scan ).")
-    say("  If the path already ends in '/{0}', that folder itself is used.".format(SOC_FOLDER_NAME))
     say(LINE)
     while True:
-        raw = ask("Path for {0}: ".format(SOC_FOLDER_NAME))
+        raw = ask("Path for soc folders: ")
         if not raw.strip():
             warn("Please type a path (or press Ctrl+C to stop).")
             continue
@@ -457,45 +506,55 @@ def ask_for_soc_location(singlet):
                 warn("Please type the path again.")
                 continue
 
-        if os.path.basename(base).lower() == SOC_FOLDER_NAME.lower():
-            soc_dir = base
-        else:
-            soc_dir = os.path.join(base, SOC_FOLDER_NAME)
+        if os.path.basename(base).lower() in [soc_name(s).lower() for s in STATES]:
+            base = os.path.dirname(base)
+            say("  That is a soc folder itself, so the folder above it is used:  " + base)
 
-        problem = soc_location_problem(soc_dir)
-        if problem:
-            warn(problem)
+        problems = []
+        for source in sources:
+            source.soc_dir = os.path.join(base, soc_name(source.state))
+            problem = soc_location_problem(source.soc_dir)
+            if problem and problem not in problems:
+                problems.append(problem)
+        if problems:
+            for problem in problems:
+                warn(problem)
             warn("Please type another path.")
             continue
-        if is_inside(soc_dir, singlet):
-            say("  Note: this puts '{0}' INSIDE the '{1}' folder:  {2}".format(
-                SOC_FOLDER_NAME, SINGLET_FOLDER_NAME, soc_dir))
+
+        inside = [(source.soc_dir, other.folder) for source in sources
+                  for other in sources if is_inside(source.soc_dir, other.folder)]
+        if inside:
+            for soc_dir, folder in inside:
+                say("  Note: this puts  {0}  INSIDE  {1}".format(soc_dir, folder))
             if not ask_yes_no("  Is that really what you want?"):
                 continue
         say("")
-        say("  OK, soc folder:  " + soc_dir)
-        return soc_dir
+        for source in sources:
+            say("  OK, {0} folder:  {1}".format(soc_name(source.state), source.soc_dir))
+        return
 
 
 # ---------------------------------------------------------------------------
-# Planning, copying and checking
+# Planning, copying and checking (done for singlet, then for triplet)
 # ---------------------------------------------------------------------------
 class Job(object):
     """One .com file: where it comes from and where it goes."""
 
-    def __init__(self, name, singlet, soc_dir):
+    def __init__(self, name, src_folder, soc_dir):
         self.name = name
-        self.src = os.path.join(singlet, name)
+        self.src = os.path.join(src_folder, name)
         if KEEP_EXTENSION_IN_FOLDER_NAME:
             folder_name = name
         else:
             folder_name = name[:-len(FILE_EXTENSION)]
         self.folder = os.path.join(soc_dir, folder_name)
         self.dst = os.path.join(self.folder, name)
+        # Short form for messages, e.g. soc_singlet/g1.com/g1.com
+        self.label = os.path.join(os.path.basename(soc_dir), folder_name, name)
         self.status = NEW
         self.reason = ""
         self.copy = False    # will be copied in this run
-        self.copied = False  # was copied and checked in this run
 
 
 def same_content(path_a, path_b):
@@ -535,8 +594,8 @@ def check_job(job):
     return NEW, ""
 
 
-def make_plan(singlet, com_files, soc_dir):
-    jobs = [Job(name, singlet, soc_dir) for name in com_files]
+def make_plan(source):
+    jobs = [Job(name, source.folder, source.soc_dir) for name in source.com_files]
     for job in jobs:
         job.status, job.reason = check_job(job)
     # Two files must never end up in the same sub-folder.
@@ -549,46 +608,53 @@ def make_plan(singlet, com_files, soc_dir):
                 job.status = BLOCKED
                 job.reason = "would share the sub-folder {0} with {1}".format(
                     job.folder, ", ".join(j.name for j in group if j is not job))
-    return jobs
+    source.jobs = jobs
 
 
-def short(path, soc_dir):
-    """soc/g1.com/g1.com instead of the full path."""
-    return os.path.relpath(path, os.path.dirname(soc_dir))
-
-
-def show_summary(singlet, soc_dir, jobs):
-    count = lambda status: sum(1 for job in jobs if job.status == status)
+def show_summary(sources):
     say("")
     say(LINE)
     say("SUMMARY - please check. Nothing has been created or copied yet.")
     say(LINE)
-    say("  From (singlet)  :  " + singlet)
-    say("  To   (soc)      :  " + soc_dir
-        + ("" if os.path.isdir(soc_dir) else "   <- will be created"))
-    say("  .com files      :  {0}  (one sub-folder each)".format(len(jobs)))
-    say("  Layout          :  " + short(jobs[0].dst, soc_dir)
-        + ("  ...  " + short(jobs[-1].dst, soc_dir) if len(jobs) > 1 else ""))
+    for state in STATES:
+        matching = [source for source in sources if source.state == state]
+        say("")
+        if not matching:
+            say("  {0}:  skipped (no {1} folder with {2} files)".format(
+                state.upper(), state, FILE_EXTENSION))
+            continue
+        source = matching[0]
+        jobs = source.jobs
+        count = lambda status: sum(1 for job in jobs if job.status == status)
+        say("  {0}".format(state.upper()))
+        say("    From          :  " + source.folder)
+        say("    To            :  " + source.soc_dir
+            + ("" if os.path.isdir(source.soc_dir) else "   <- will be created"))
+        say("    .com files    :  {0}  (one sub-folder each)".format(len(jobs)))
+        say("    Layout        :  " + jobs[0].label
+            + ("  ...  " + jobs[-1].label if len(jobs) > 1 else ""))
+        say("    New, will be copied                 :  {0}".format(count(NEW)))
+        if count(SAME):
+            say("    Already in soc and identical (skip) :  {0}".format(count(SAME)))
+        if count(DIFFERENT):
+            say("    Already in soc but DIFFERENT        :  {0}".format(count(DIFFERENT)))
+        if count(BLOCKED):
+            say("    Cannot be copied                    :  {0}".format(count(BLOCKED)))
     say("")
-    say("  New, will be copied                 :  {0}".format(count(NEW)))
-    if count(SAME):
-        say("  Already in soc and identical (skip) :  {0}".format(count(SAME)))
-    if count(DIFFERENT):
-        say("  Already in soc but DIFFERENT        :  {0}".format(count(DIFFERENT)))
-    if count(BLOCKED):
-        say("  Cannot be copied                    :  {0}".format(count(BLOCKED)))
     say(LINE)
 
 
-def copy_files(soc_dir, jobs):
-    to_copy = [job for job in jobs if job.copy]
+def copy_files(source):
+    to_copy = [job for job in source.jobs if job.copy]
+    if not to_copy:
+        return
     say("")
-    say("Copying ...")
+    say("Copying {0} ...".format(source.state))
     try:
-        if not os.path.isdir(soc_dir):
-            os.makedirs(soc_dir)
+        if not os.path.isdir(source.soc_dir):
+            os.makedirs(source.soc_dir)
     except OSError as err:
-        warn("Could not create the soc folder ({0}):  {1}".format(err.strerror or err, soc_dir))
+        warn("Could not create the folder ({0}):  {1}".format(err.strerror or err, source.soc_dir))
         for job in to_copy:
             job.reason = "soc folder could not be created"
         return
@@ -605,48 +671,63 @@ def copy_files(soc_dir, jobs):
                 pass
             if not same_content(job.src, job.dst):
                 raise IOError("the copy is not identical to the original")
-            job.copied = True
-            say("  {0} OK      {1}  ->  {2}".format(counter, job.name, short(job.dst, soc_dir)))
+            say("  {0} OK      {1}  ->  {2}".format(counter, job.name, job.label))
         except Exception as err:
             job.reason = str(getattr(err, "strerror", None) or err)
             say("  {0} FAILED  {1}  ({2})".format(counter, job.name, job.reason))
 
 
-def final_check(soc_dir, jobs):
-    """Look at soc again and confirm every file is there and identical."""
+def final_check(sources):
+    """Look at the soc folders again and confirm every file is there and identical."""
     say("")
-    say("Final check: comparing every file in soc with the original ...")
-    good, bad, kept = [], [], []
-    for job in jobs:
-        if job.status == DIFFERENT and not job.copy:
-            kept.append(job)  # the user chose to keep the old version
+    say("Final check: comparing every copied file with its original ...")
+    say("")
+    say(LINE)
+    all_ok = True
+    for state in STATES:
+        matching = [source for source in sources if source.state == state]
+        if not matching:
+            say("{0}:  skipped (no {1} folder with {2} files)".format(
+                state.upper(), state, FILE_EXTENSION))
             continue
-        try:
-            ok = (os.path.isdir(job.folder) and not os.path.islink(job.dst)
-                  and os.path.isfile(job.dst) and same_content(job.src, job.dst))
-        except (IOError, OSError):
-            ok = False
-        (good if ok else bad).append(job)
+        source = matching[0]
+        good, bad, kept = [], [], []
+        for job in source.jobs:
+            if job.status == DIFFERENT and not job.copy:
+                kept.append(job)  # the user chose to keep the old version
+                continue
+            try:
+                ok = (os.path.isdir(job.folder) and not os.path.islink(job.dst)
+                      and os.path.isfile(job.dst) and same_content(job.src, job.dst))
+            except (IOError, OSError):
+                ok = False
+            (good if ok else bad).append(job)
 
-    say("")
-    say(LINE)
-    if not bad:
-        say("DONE.  {0} of {1} '{2}' file(s) are in soc, each in its own sub-folder,"
-            .format(len(good), len(jobs), FILE_EXTENSION))
-        say("       and identical to the originals in singlet.")
+        if not bad:
+            say("{0}:  {1} of {2} '{3}' file(s) are in {4}, each in its own".format(
+                state.upper(), len(good), len(source.jobs), FILE_EXTENSION, soc_name(state)))
+            say("          sub-folder, and identical to the originals.")
+        else:
+            all_ok = False
+            say("{0}:  PROBLEM - {1} file(s) are missing or not identical:".format(
+                state.upper(), len(bad)))
+            for job in bad:
+                say("      " + job.label + ("   (" + job.reason + ")" if job.reason else ""))
+            say("          The other {0} file(s) are fine.".format(len(good)))
+        if kept:
+            say("          Left unchanged on your request (different from {0}): {1}".format(
+                state, len(kept)))
+            for job in kept:
+                say("              " + job.label)
+        say("          Folder:  " + source.soc_dir)
+        say("")
+    if all_ok:
+        say("DONE. Everything is in place.")
     else:
-        say("PROBLEM:  {0} file(s) are missing or not identical in soc:".format(len(bad)))
-        for job in bad:
-            say("      " + job.name + ("   (" + job.reason + ")" if job.reason else ""))
-        say("  The other {0} file(s) are fine. Fix the problem above and run the".format(len(good)))
-        say("  program again: files that are already fine will be skipped.")
-    if kept:
-        say("  Left unchanged on your request (different from singlet): {0}".format(len(kept)))
-        for job in kept:
-            say("      " + short(job.dst, soc_dir))
-    say("  soc folder:  " + soc_dir)
+        say("Please fix the problem(s) above and run the program again:")
+        say("files that are already fine will be skipped.")
     say(LINE)
-    return 0 if not bad else 1
+    return 0 if all_ok else 1
 
 
 def main():
@@ -655,63 +736,65 @@ def main():
         return 0
 
     say(LINE)
-    say("  CREATION OF SOC")
-    say("  Copies every '{0}' file from the '{1}' folder into its own".format(
-        FILE_EXTENSION, SINGLET_FOLDER_NAME))
-    say("  sub-folder of '{0}':   {1}/g1{2}  ->  {0}/g1{2}/g1{2}".format(
-        SOC_FOLDER_NAME, SINGLET_FOLDER_NAME, FILE_EXTENSION))
-    say("  Press Ctrl+C at any time to stop.")
+    say("  CREATION OF SOC  (singlet and triplet)")
+    say("  Copies every '{0}' file into its own sub-folder:".format(FILE_EXTENSION))
+    for state in STATES:
+        say("      {0}/g1{1}  ->  {2}/g1{1}/g1{1}".format(state, FILE_EXTENSION, soc_name(state)))
+    say("  Singlet is done first, then triplet. Press Ctrl+C at any time to stop.")
     say(LINE)
     if sys.argv[1:]:
         say("  Note: the program asks for the paths itself; the words typed after")
         say("  the command are ignored.")
     enable_tab_completion()
 
-    singlet, com_files = ask_for_singlet()
-    soc_dir = ask_for_soc_location(singlet)
+    sources = ask_for_sources()
+    ask_for_soc_location(sources)
+    for source in sources:
+        make_plan(source)
+    show_summary(sources)
 
-    jobs = make_plan(singlet, com_files, soc_dir)
-    show_summary(singlet, soc_dir, jobs)
-
-    blocked = [job for job in jobs if job.status == BLOCKED]
+    all_jobs = [job for source in sources for job in source.jobs]
+    blocked = [job for job in all_jobs if job.status == BLOCKED]
     if blocked:
         say("")
         warn("These file(s) cannot be copied:")
         for job in blocked:
-            say("      {0}:  {1}".format(job.name, job.reason))
+            say("      {0}:  {1}".format(job.label, job.reason))
         say("")
-        say("  Nothing has been created or copied. Please move or rename the")
-        say("  item(s) above, then run the program again.")
+        say("  Nothing has been created or copied (neither singlet nor triplet).")
+        say("  Please move or rename the item(s) above, then run the program again.")
         return 1
 
-    for job in jobs:
+    for job in all_jobs:
         job.copy = job.status == NEW
 
-    different = [job for job in jobs if job.status == DIFFERENT]
+    different = [job for job in all_jobs if job.status == DIFFERENT]
     if different:
         say("")
-        say("  These file(s) are already in soc but are DIFFERENT from singlet:")
+        say("  These file(s) are already in the soc folders but are DIFFERENT")
+        say("  from the originals:")
         for job in different:
-            say("      " + short(job.dst, soc_dir))
-        if ask_yes_no("  Replace them with the version from singlet?"):
+            say("      " + job.label)
+        if ask_yes_no("  Replace them with the originals?"):
             for job in different:
                 job.copy = True
         else:
             say("  OK, they will be left unchanged.")
 
-    to_copy = sum(1 for job in jobs if job.copy)
+    to_copy = sum(1 for job in all_jobs if job.copy)
     if to_copy == 0:
         say("")
         say("  Nothing needs to be copied.")
-        return final_check(soc_dir, jobs)
+        return final_check(sources)
 
     say("")
     if not ask_yes_no("Start copying {0} file(s) now?".format(to_copy)):
         say("  Cancelled. Nothing has been created or copied.")
         return 0
 
-    copy_files(soc_dir, jobs)
-    return final_check(soc_dir, jobs)
+    for source in sources:  # singlet first, then triplet
+        copy_files(source)
+    return final_check(sources)
 
 
 if __name__ == "__main__":
