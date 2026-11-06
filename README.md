@@ -1,6 +1,6 @@
 # Creation-of-soc
 
-Three programs that prepare Gaussian SOC calculations. Run them one after
+Four programs that prepare and run Gaussian SOC calculations. Run them one after
 the other in an Ubuntu terminal:
 
 | Step | Command | What it does |
@@ -8,8 +8,9 @@ the other in an Ubuntu terminal:
 | 1 | `python3 creation_of_soc.py` | Copies `singlet/g1.com` → `soc_singlet/g1.com/g1.com` (and the same for triplet) |
 | 2 | `python3 creation_of_gaussian_com.py` | In every sub-folder, makes `gaussian.com` from `g1.com` with the new first lines |
 | 3 | `python3 copy_init.py` | Copies the PySOC `init.py` into every sub-folder of `soc_singlet` |
+| 4 | `python3 submit_soc_singlet.py` | Runs `g16 < gaussian.com > gaussian.log` in every `soc_singlet` sub-folder, one job after another |
 
-All three programs show a summary and change nothing until you type `y`.
+All four programs show a summary and change nothing until you type `y`.
 Type paths the same way as in the terminal: relative
 (`jana/pp/opt/b3lyp/scan`), absolute (`/home/jana/...`), with `~` or
 `$HOME`, with quotes or `\ ` for spaces. **Tab** completes folder names.
@@ -109,10 +110,60 @@ are different and replaces them only if you type `y`.
 
 Tested with Python 3.6 (Ubuntu 18.04), 3.8 and 3.13.
 
+## Step 4: `submit_soc_singlet.py`
+
+Runs Gaussian 16 on the `gaussian.com` in every sub-folder of
+`soc_singlet`, **one job at a time**, in the order g1.com, g2.com, ...
+g41.com. Only `gaussian.com` is run; the `g1.com`, `g2.com`, ... files next
+to it are never used. `soc_triplet` is not touched.
+
+```
+cd soc_singlet/g1.com   ;   g16 < gaussian.com > gaussian.log
+   ... waits until that g16 has completely finished ...
+cd soc_singlet/g2.com   ;   g16 < gaussian.com > gaussian.log
+...
+```
+
+Each job runs inside its own sub-folder, so `gaussian.log`,
+`gaussian.rwf` and `gaussian.chk` are written next to `gaussian.com` and
+`init.py`, where PySOC needs them. A job counts as done only when the last
+line of its `gaussian.log` says `Normal termination`. After each job the
+program also checks that no Gaussian program is still working in that
+sub-folder before the next job starts, and notes it if `gaussian.rwf` is
+missing.
+
+Start it from the terminal where `g16` normally works (it checks this).
+It asks one question, the path of `soc_singlet` or of the folder that
+contains it, shows a summary, and after `y` runs **in the background**:
+you can close the terminal or log out of SSH.
+
+| What | How |
+|------|-----|
+| Watch progress | `tail -f .../soc_singlet/submit_soc_singlet.log` (Ctrl+C only stops watching) |
+| Stop after the job that is running now | `touch .../soc_singlet/STOP` |
+| Stop at once (also stops the running g16) | `kill <number>` (the exact command is printed at the start) |
+| See how far it is | run the program again |
+
+- Jobs that already ended with `Normal termination` are skipped, so
+  running it again is always safe.
+- A job that failed or was stopped runs again next time; its old log is
+  kept as `gaussian.log.old`.
+- A failed job is reported (with Gaussian's `Error termination` line) and
+  the next job starts once the failed one has completely ended. If 3 jobs
+  fail one after another, the run stops.
+- Nothing starts if a `gaussian.com` is missing, if a Gaussian job is
+  already running in one of the sub-folders, or if a run is already going
+  on this `soc_singlet`.
+- No new job starts with less than 2 GB of free disk space.
+
+Tested with Python 3.6 (Ubuntu 18.04), 3.8 and 3.13, using a stand-in for
+g16 that writes its files like Gaussian does.
+
 ## Safety (all programs)
 
 - Original files are only read, never changed or moved.
-  (`copy_init.py` only adds `init.py` to each `soc_singlet` sub-folder.)
+  (`copy_init.py` only adds `init.py` to each `soc_singlet` sub-folder;
+  `submit_soc_singlet.py` only adds Gaussian's own output files.)
 - Nothing is created or written before you confirm the summary.
 - Existing files are never replaced without asking.
 - If anything looks wrong (for example a file in the way, or a `.com`
