@@ -1,14 +1,15 @@
 # Creation-of-soc
 
-Two programs that prepare Gaussian SOC calculations. Run them one after
+Three programs that prepare Gaussian SOC calculations. Run them one after
 the other in an Ubuntu terminal:
 
 | Step | Command | What it does |
 |------|---------|--------------|
 | 1 | `python3 creation_of_soc.py` | Copies `singlet/g1.com` → `soc_singlet/g1.com/g1.com` (and the same for triplet) |
 | 2 | `python3 creation_of_gaussian_com.py` | In every sub-folder, makes `gaussian.com` from `g1.com` with the new first lines |
+| 3 | `python3 copy_init.py` | Copies the PySOC `init.py` into every sub-folder of `soc_singlet` |
 
-Both programs show a summary and change nothing until you type `y`.
+All three programs show a summary and change nothing until you type `y`.
 Type paths the same way as in the terminal: relative
 (`jana/pp/opt/b3lyp/scan`), absolute (`/home/jana/...`), with `~` or
 `$HOME`, with quotes or `\ ` for spaces. **Tab** completes folder names.
@@ -72,9 +73,46 @@ of `soc_singlet` or `soc_triplet` itself; both are found automatically.
 The summary also shows the charge/multiplicity of the files and warns if
 a file has no connectivity section (needed by `geom=connectivity`).
 
-## Safety (both programs)
+## Step 3: `copy_init.py`
+
+Copies the PySOC settings file `init.py` into every sub-folder of
+`soc_singlet`. Only `soc_singlet` is done; `soc_triplet` is not touched.
+
+```
+init.py   ->   soc_singlet/g1.com/init.py
+init.py   ->   soc_singlet/g2.com/init.py
+...            (one copy in every sub-folder, g1.com ... g41.com)
+```
+
+It asks two questions:
+
+1. **Path to soc_singlet**: type either `soc_singlet` itself
+   (e.g. `jana/pp/opt/b3lyp/scan/soc_singlet`) or the folder that contains
+   it (e.g. `jana/pp/opt/b3lyp/scan`). The program tells the two apart. It
+   also understands a path to `soc_triplet`, `singlet`, `triplet` or one
+   sub-folder such as `soc_singlet/g7.com`, and searches deeper folders.
+2. **Which init.py**: if `init.py` is next to the program, in the folder you
+   are in, or next to `soc_singlet`, it is found and you only confirm it.
+   Otherwise type its path or its folder. A file with another name (for
+   example a download called `8c06abfb-init.py`) is accepted, but every
+   copy is named `init.py`, because that is the name PySOC looks for.
+
+Before copying, it checks that the file looks like the PySOC `init.py`
+(it contains `QM_code`, `qm_out` and `molsoc_path`, and Python can read
+it). The summary also notes settings that will need changing before PySOC
+can run: `QM_code` other than `gauss_tddft`, and `g09root` or
+`molsoc_path` pointing to a place that does not exist on this computer.
+These notes do not stop the copying.
+
+After you edit `init.py`, run the program again: it shows which copies
+are different and replaces them only if you type `y`.
+
+Tested with Python 3.6 (Ubuntu 18.04), 3.8 and 3.13.
+
+## Safety (all programs)
 
 - Original files are only read, never changed or moved.
+  (`copy_init.py` only adds `init.py` to each `soc_singlet` sub-folder.)
 - Nothing is created or written before you confirm the summary.
 - Existing files are never replaced without asking.
 - If anything looks wrong (for example a file in the way, or a `.com`
