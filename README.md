@@ -10,6 +10,7 @@ the other in an Ubuntu terminal:
 | 3 | `python3 copy_init.py` | Copies the PySOC `init.py` into every sub-folder of `soc_singlet` |
 | 4 | `python3 submit_soc_singlet.py` | Runs `g16 < gaussian.com > gaussian.log` in every `soc_singlet` sub-folder, one job after another |
 | 5 | `python3 replace.py` | Puts this computer's paths (`g09root`, `molsoc_path`, `dir_para_basis`) into `init.py` in every `soc_singlet` sub-folder |
+| 6 | `python3 run_init.py` | Runs PySOC (`soc.py`, then `soc_td`) in every `soc_singlet` sub-folder, one after another, and checks each `soc_out.dat` |
 
 All programs show a summary and change nothing until you type `y`.
 Type paths the same way as in the terminal: relative
@@ -185,6 +186,57 @@ are right; answer `n` to type other paths (useful on another computer).
   permission), nothing at all is changed.
 - Each `init.py` is written in one step, then read back and checked.
 - Running it again skips `init.py` files that already have the new paths.
+
+## Step 6: `run_init.py`
+
+`init.py` is PySOC's settings file; it is used by running PySOC in its
+folder. This does that in every sub-folder of `soc_singlet`, one at a
+time, in the order g1.com, g2.com, ..., exactly as PySOC's `pysoc.py` does:
+
+```
+cd soc_singlet/g1.com   ;   python2 soc.py   (reads init.py, gaussian.log, gaussian.rwf)
+                            soc_td           (writes soc_out.dat)
+   ... the next folder starts only after this one has completely finished ...
+```
+
+Run it from the terminal where `g16` works, after the Gaussian jobs
+(Step 4) have finished and `init.py` has this computer's paths (Step 5).
+It asks for `soc_singlet` and the PySOC folder (built in:
+`/home/vsrgroup3/softwares/pySOC/pysoc-master/pysoc/bin`), shows a summary,
+and after `y` runs **in the background** (you can log out).
+
+| What | How |
+|------|-----|
+| Watch progress | `tail -f .../soc_singlet/run_init.log` |
+| Stop after the folder running now | `touch .../soc_singlet/STOP` |
+| Stop at once | `kill <number>` (printed at the start) |
+| See how far it is | run the program again |
+
+A folder counts as done only when `soc_out.dat` was written by this run
+and has every `<S|Hso|T>` line that `n_s`, `n_t` and `n_g` in `init.py`
+ask for (20 lines for 4 singlets + S0 and 4 triplets), with no NaN or
+`*****` values. PySOC's output for each folder is in its `pysoc.log`.
+
+- **No file is ever deleted.** On a first run nothing is renamed. When a
+  folder is run again, the last run's `soc_out.dat`, `pysoc.log` and the
+  five rwfdump files are kept with `.old` added.
+- After `soc.py`, every file PySOC needs (rwfdump dumps, MolSOC output,
+  `soc.py` output) is checked to have been written by **this** run, so
+  files from an earlier run are never taken as new results.
+- Folders whose `gaussian.log` is not finished, or have no `gaussian.rwf`,
+  are listed as NOT READY and skipped (you are asked first).
+- Nothing starts while `submit_soc_singlet.py` is still running, if
+  `init.py` still has paths that are not on this computer, or if Python 2
+  is missing.
+- PySOC's own `soc.py` looks for Gaussian 09 (`g09root/g09/rwfdump`). If
+  this computer has Gaussian 16 instead, the program shows the two lines
+  concerned and offers to run a **copy** of `soc.py` with g16 in them,
+  kept in `soc_singlet/pysoc_g16/`. PySOC's own files are never changed.
+- If 3 folders fail one after another, the run stops.
+
+Tested with the real PySOC 2016 programs (`soc.py` under Python 2.7, the
+modified MolSOC, `soc_td`) on the PySOC example: every `soc_out.dat` was
+identical to PySOC's reference. Controller tested with Python 3.6, 3.8, 3.13.
 
 ## Helper: `search.py`
 
