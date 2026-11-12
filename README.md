@@ -1,6 +1,6 @@
 # Creation-of-soc
 
-Four programs that prepare and run Gaussian SOC calculations. Run them one after
+Programs that prepare and run Gaussian SOC calculations (with PySOC). Run them one after
 the other in an Ubuntu terminal:
 
 | Step | Command | What it does |
@@ -9,8 +9,9 @@ the other in an Ubuntu terminal:
 | 2 | `python3 creation_of_gaussian_com.py` | In every sub-folder, makes `gaussian.com` from `g1.com` with the new first lines |
 | 3 | `python3 copy_init.py` | Copies the PySOC `init.py` into every sub-folder of `soc_singlet` |
 | 4 | `python3 submit_soc_singlet.py` | Runs `g16 < gaussian.com > gaussian.log` in every `soc_singlet` sub-folder, one job after another |
+| 5 | `python3 replace.py` | Puts this computer's paths (`g09root`, `molsoc_path`, `dir_para_basis`) into `init.py` in every `soc_singlet` sub-folder |
 
-All four programs show a summary and change nothing until you type `y`.
+All programs show a summary and change nothing until you type `y`.
 Type paths the same way as in the terminal: relative
 (`jana/pp/opt/b3lyp/scan`), absolute (`/home/jana/...`), with `~` or
 `$HOME`, with quotes or `\ ` for spaces. **Tab** completes folder names.
@@ -158,6 +159,32 @@ you can close the terminal or log out of SSH.
 
 Tested with Python 3.6 (Ubuntu 18.04), 3.8 and 3.13, using a stand-in for
 g16 that writes its files like Gaussian does.
+
+## Step 5: `replace.py`
+
+The `init.py` files still contain paths from another computer. This puts
+the paths of this computer into `init.py` in every sub-folder of
+`soc_singlet` (g1.com ... g41.com), one after another:
+
+```
+g09root        = '/home/vsrgroup3/softwares'
+molsoc_path    = '/home/vsrgroup3/softwares/pySOC/pysoc-master/molsoc/molsoc_modified/molsoc0.1/bin/molsoc0.1.exe'
+dir_para_basis = '/home/vsrgroup3/softwares/pySOC/pysoc-master/pysoc/parameters/mio-1-1-fit'
+```
+
+These are the built-in values (from `search.py` on the lab computer). The
+program shows them, checks they exist on this computer, and asks if they
+are right; answer `n` to type other paths (useful on another computer).
+
+- Only the values of these three settings change; every other line of
+  `init.py` stays byte for byte the same (spacing, comments, line endings,
+  quote style). Every line that sets one of them is changed.
+- No other file is touched (`gaussian.com`, `g1.com`, Gaussian output,
+  `soc_triplet`).
+- If any sub-folder has a problem (no `init.py`, a setting missing, no
+  permission), nothing at all is changed.
+- Each `init.py` is written in one step, then read back and checked.
+- Running it again skips `init.py` files that already have the new paths.
 
 ## Helper: `search.py`
 
