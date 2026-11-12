@@ -159,6 +159,35 @@ you can close the terminal or log out of SSH.
 Tested with Python 3.6 (Ubuntu 18.04), 3.8 and 3.13, using a stand-in for
 g16 that writes its files like Gaussian does.
 
+## Helper: `search.py`
+
+Finds on this computer the paths that PySOC's `init.py` needs, because the
+`init.py` from the original computer points to folders that do not exist
+here (`g09root`, `molsoc_path`, `dir_para_basis`).
+
+```
+python3 search.py                  # searches the whole computer
+python3 search.py ~/software /opt  # searches only these folders (faster)
+```
+
+Run it from the terminal where `g16` works. It prints, ready to copy:
+
+- `g09root`: the folder that contains the `g16` (or `g09`) folder
+- `molsoc_path`: the **modified** `molsoc0.1.exe` (recognised by its exact
+  content; the original, unmodified MolSOC is never suggested)
+- `dir_para_basis`: only used for TD-DFTB
+- the PySOC scripts folder (`soc.py`, `soc_td`, `pysoc.py`) and what
+  `scrip_soc` in `pysoc.py` must become
+- Gaussian's `rwfdump` (which PySOC calls) and what it needs, plus Python 2
+- every `init.py` copy on the computer and the paths written in them now
+- a to-do list of anything missing, with the command to fix it
+
+The results are also saved to `search_results.txt`. Nothing else is changed.
+Ctrl+C stops the search early and shows what was found so far.
+
+If PySOC or MolSOC is missing, the program prints the download links of the
+2016 PySOC release (the version that uses `init.py`).
+
 ## Safety (all programs)
 
 - Original files are only read, never changed or moved.
