@@ -11,6 +11,7 @@ the other in an Ubuntu terminal:
 | 4 | `python3 submit_soc_singlet.py` | Runs `g16 < gaussian.com > gaussian.log` in every `soc_singlet` sub-folder, one job after another |
 | 5 | `python3 replace.py` | Puts this computer's paths (`g09root`, `molsoc_path`, `dir_para_basis`) into `init.py` in every `soc_singlet` sub-folder |
 | 6 | `python3 run_init.py` | Runs PySOC (`soc.py`, then `soc_td`) in every `soc_singlet` sub-folder, one after another, and checks each `soc_out.dat` |
+| 7 | `python3 soc_plot.py` | Makes `soc_plot.ods` in the layout of `SOC-PP.ods`: for every geometry and the transitions you choose, S0+S and S0+T from the energies sheet, the SOC from `soc_out.dat`, and the k ISC formulas |
 
 All programs show a summary and change nothing until you type `y`.
 Type paths the same way as in the terminal: relative
@@ -237,6 +238,54 @@ ask for (20 lines for 4 singlets + S0 and 4 triplets), with no NaN or
 Tested with the real PySOC 2016 programs (`soc.py` under Python 2.7, the
 modified MolSOC, `soc_td`) on the PySOC example: every `soc_out.dat` was
 identical to PySOC's reference. Controller tested with Python 3.6, 3.8, 3.13.
+
+## Step 7: `soc_plot.py`
+
+Makes the sheet `soc_plot.ods` in the layout of `SOC-PP.ods`: one block per
+geometry (g1, g2, ...) with one row for each transition you choose, and the
+same labels, constants and formulas as `SOC-PP.ods`.
+
+```
+python3 soc_plot.py
+```
+
+It asks three things:
+
+1. **The energies sheet** (`.ods`, `.xlsx` or `.csv`, for example
+   `plot_s_t.ods`): one row per geometry (`g1.log`, `g2.log`, ... or `g1`, ...)
+   and columns named `S0`, `S1` ... `T4` and/or `S0+S1` ... `S0+T4`. The
+   columns are found by their names, wherever they are in the sheet.
+2. **The transitions**, as pairs, singlet first: `S1 T2 S2 T3 S3 T4` means
+   S1-T2, S2-T3 and S3-T4, in this order in every block (`S1-T2, S2-T3` works too).
+3. **Where `soc_singlet` is** (the same question as in the other programs).
+
+What goes into every row:
+
+| Column | Comes from |
+|--------|------------|
+| C (labelled S1, S2, ...) | S0 + S1, S0 + S2, ... from the energies sheet (S0 itself under the label S0) |
+| D (labelled T1, T2, ...) | S0 + T1, S0 + T2, ... from the energies sheet |
+| F `SOC (cm-1)` | `soc_singlet/g1.com/soc_out.dat`: the first number after `(cm-1):` on the line `sum_soc, <S(1)\|Hso\|T(2),1,0,-1> (cm-1): ...` (the total SOC) |
+| H, I, J, K | the constants of `SOC-PP.ods`: 4.136E-15, 0.2, 8.6173E-05, 300 |
+| E, G, L, M, N, O | the formulas of `SOC-PP.ods`, so every result recalculates if you change a number |
+
+- If the sheet has an `S0+T4` column **and** `S0` and `T4` columns, and they
+  do not agree (for example `S0+T4` made from S0+S4 by mistake), the
+  geometries concerned are shown and you choose which numbers to use.
+- Geometries with a problem (no `soc_out.dat`, a transition missing in it,
+  `*****` or NaN, an empty energy cell, a geometry only in the sheet or only
+  in `soc_singlet`) are listed with the reason, and only left out if you agree.
+- `soc_plot.ods` is written next to the energies sheet. If one is already
+  there, it is kept as `soc_plot_old1.ods` (then `soc_plot_old2.ods`, ...).
+  Nothing in `soc_singlet` and nothing in the energies sheet is changed.
+- The columns are wide enough that no number is shown as `###`.
+- To put it on Google Drive: drive.google.com, New, File upload. It opens
+  there as a Google Sheet, with the formulas.
+
+Tested with Python 3.6, 3.8 and 3.13 (93 checks each). Every cell of the new
+sheet was checked against LibreOffice's own recalculation (no error cells, no
+`###`), the test `soc_out.dat` files were written with PySOC's own Fortran
+format line, and g1 to g3 give exactly the numbers of `SOC-PP.ods`.
 
 ## Helper: `search.py`
 
