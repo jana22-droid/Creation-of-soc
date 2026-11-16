@@ -249,15 +249,22 @@ same labels, constants and formulas as `SOC-PP.ods`.
 python3 soc_plot.py
 ```
 
-It asks three things:
+It asks four things:
 
 1. **The energies sheet** (`.ods`, `.xlsx` or `.csv`, for example
    `plot_s_t.ods`): one row per geometry (`g1.log`, `g2.log`, ... or `g1`, ...)
    and columns named `S0`, `S1` ... `T4` and/or `S0+S1` ... `S0+T4`. The
    columns are found by their names, wherever they are in the sheet.
+   If a name is in more than one column (for example two columns called
+   `S1`), both are shown with their first numbers and you choose once for
+   all of them (or name by name). A column called `T4` that really holds
+   S0 + T4 is recognised by itself, so S0 is never added twice.
 2. **The transitions**, as pairs, singlet first: `S1 T2 S2 T3 S3 T4` means
    S1-T2, S2-T3 and S3-T4, in this order in every block (`S1-T2, S2-T3` works too).
 3. **Where `soc_singlet` is** (the same question as in the other programs).
+4. **The folder to save `soc_plot.ods` in.** Press Enter to save it next to
+   the energies sheet. A folder that does not exist yet is made (only after
+   you confirm the summary).
 
 What goes into every row:
 
@@ -275,14 +282,14 @@ What goes into every row:
 - Geometries with a problem (no `soc_out.dat`, a transition missing in it,
   `*****` or NaN, an empty energy cell, a geometry only in the sheet or only
   in `soc_singlet`) are listed with the reason, and only left out if you agree.
-- `soc_plot.ods` is written next to the energies sheet. If one is already
-  there, it is kept as `soc_plot_old1.ods` (then `soc_plot_old2.ods`, ...).
+- If `soc_plot.ods` is already in that folder, the old one is kept as
+  `soc_plot_old1.ods` (then `soc_plot_old2.ods`, ...).
   Nothing in `soc_singlet` and nothing in the energies sheet is changed.
 - The columns are wide enough that no number is shown as `###`.
 - To put it on Google Drive: drive.google.com, New, File upload. It opens
   there as a Google Sheet, with the formulas.
 
-Tested with Python 3.6, 3.8 and 3.13 (93 checks each). Every cell of the new
+Tested with Python 3.6, 3.8 and 3.13 (109 checks each). Every cell of the new
 sheet was checked against LibreOffice's own recalculation (no error cells, no
 `###`), the test `soc_out.dat` files were written with PySOC's own Fortran
 format line, and g1 to g3 give exactly the numbers of `SOC-PP.ods`.

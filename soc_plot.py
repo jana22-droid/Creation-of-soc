@@ -35,17 +35,21 @@ WHERE THE NUMBERS COME FROM
 HOW TO RUN (Ubuntu terminal)
     python3 soc_plot.py
 
-It asks three things:
+It asks four things:
     1. Where the sheet with the energies is (.ods, .xlsx or .csv). It needs
        one row per geometry (g1.log, g2.log ... or g1, g2 ...) and columns
-       named S0, S1 ... S4, T1 ... T4 and/or S0+S1 ... S0+T4.
+       named S0, S1 ... S4, T1 ... T4 and/or S0+S1 ... S0+T4. If a name is
+       in two columns (for example two columns called S1), you are shown
+       both and choose; a column called T4 that holds S0 + T4 is recognised.
     2. Which transitions, typed as pairs, singlet first:
            S1 T2 S2 T3 S3 T4      means   S1-T2, S2-T3, S3-T4
     3. Where soc_singlet is (soc_singlet itself, or the folder that
        contains it), as in the other programs.
-Then it shows what it found and, after you type y, writes soc_plot.ods next
-to the energies sheet. Open it in LibreOffice, or upload it to Google Drive
-(it opens there as a Google Sheet).
+    4. In which folder soc_plot.ods should be saved (Enter: next to the
+       energies sheet; a new folder is made if needed).
+Then it shows what it found and, after you type y, writes soc_plot.ods.
+Open it in LibreOffice, or upload it to Google Drive (it opens there as a
+Google Sheet).
 
 SAFETY
     * The energies sheet and the soc_out.dat files are only read. Nothing in
@@ -705,12 +709,13 @@ class Table(object):
         return (state != "S0" and state in self.state_columns
                 and not self.can_add_s0(state))
 
-    def is_ambiguous(self, state):
-        """True if a column needed for this state exists twice with different numbers."""
-        if state == "S0":
-            return ("state", "S0") in self.ambiguous
-        return (("sum", state) in self.ambiguous or ("state", state) in self.ambiguous
-                or ("state", "S0") in self.ambiguous)
+    def column_label(self, label, col):
+        """Use this column for ('state'|'sum', 'S1') from now on."""
+        if label[0] == "state":
+            self.state_columns[label[1]] = col
+        else:
+            self.sum_columns[label[1]] = col
+        self.ambiguous.pop(label, None)
 
     def available(self):
         return sorted(set(self.state_columns) | set(self.sum_columns) | (
@@ -836,10 +841,11 @@ def show_table(path, table):
     if table.sum_columns:
         say("  Columns with S0 already added:")
         show_wrapped(describe_columns(table, table.sum_columns, "S0+"))
-    for (kind, state), cols in sorted(table.ambiguous.items()):
-        warn("{0} columns are named {1} ({2}) and their numbers differ.".format(
-            len(cols), ("S0+" if kind == "sum" else "") + state,
-            ", ".join(column_letter(col) for col in cols)))
+    if table.ambiguous:
+        say("  Note: these names are in more than one column, with different numbers:")
+        show_wrapped(["{0} ({1})".format(label_name(label), ", ".join(
+            column_letter(col) for col in cols)) for label, cols in sorted_labels(table.ambiguous)])
+        say("  If they are needed, you will be shown both and asked which to use.")
     for key in natural_sorted(table.duplicates):
         warn("{0} is in the sheet more than once (rows {1}) with different numbers.".format(
             table.geometries[key][0], ", ".join(str(r + 1) for r in table.duplicates[key])))
@@ -998,12 +1004,6 @@ def ask_for_transitions(table):
             warn("Not in the energies sheet: {0}.".format(", ".join(missing)))
             warn("This sheet has: {0}.".format(", ".join(table.available())))
             continue
-        ambiguous = [s for s in states if table.is_ambiguous(s)]
-        if ambiguous:
-            warn("The sheet has two different columns for: {0}.".format(", ".join(ambiguous)))
-            warn("Please rename or remove one of them in the sheet and run again,")
-            warn("or choose other transitions.")
-            continue
         plain = [s for s in states if table.plain_only(s)]
         for note in notes:
             say("  Note: " + note + ".")
@@ -1023,17 +1023,140 @@ def ask_for_transitions(table):
 
 
 # ---------------------------------------------------------------------------
+# Names that are in more than one column (for example two columns called S1)
+# ---------------------------------------------------------------------------
+ORDINALS = ("first", "second", "third", "fourth", "fifth", "sixth")
+
+
+def label_name(label):
+    """'S1' for ('state', 'S1'), 'S0+S1' for ('sum', 'S1')."""
+    return ("S0+" if label[0] == "sum" else "") + label[1]
+
+
+def sorted_labels(labels):
+    """(label, columns) sorted: S0, S1 ... T4 first, then S0+S1 ... S0+T4."""
+    return sorted(labels.items(), key=lambda item: (item[0][0] == "sum", state_sort_key(item[0][1])))
+
+
+def column_preview(table, col):
+    """'H 'S1':  4.0749   4.0613   4.0475  ...  (41 of 41 filled)'"""
+    keys = natural_sorted(table.geometries)
+    shown = "  ".join("{0:>9}".format(fmt_ev(table.number(col, key))) for key in keys[:3])
+    filled = sum(1 for key in keys if table.number(col, key) is not None)
+    return "column {0:<3} '{1}':  {2}  ({3} of {4} filled)".format(
+        column_letter(col), table.headers.get(col, ""), shown, filled, len(keys))
+
+
+def holds_s0_added(table, plain_col, other_col, s0_col):
+    """True if other_col = S0 + plain_col for every geometry (and S0 is not always 0)."""
+    compared, s0_not_zero = 0, False
+    for key in table.geometries:
+        x, y, s0 = (table.number(plain_col, key), table.number(other_col, key),
+                    table.number(s0_col, key))
+        if x is None or y is None or s0 is None:
+            continue
+        if abs(y - (s0 + x)) > SUM_TOLERANCE:
+            return False
+        compared += 1
+        if abs(s0) > SUM_TOLERANCE:
+            s0_not_zero = True
+    return compared > 0 and s0_not_zero
+
+
+def same_column_numbers(table, cols):
+    for key in table.geometries:
+        if len(set(table.number(col, key) for col in cols)) > 1:
+            return False
+    return True
+
+
+def ask_which_column(table, label, chosen):
+    cols = table.ambiguous[label]
+    choice = ask_choice("  Which column is {0}?".format(label_name(label)),
+                        [column_preview(table, col) for col in cols])
+    table.column_label(label, cols[choice])
+    chosen.setdefault(label[1], set()).add(label[0])
+
+
+def settle_duplicates(table, states):
+    """
+    For the needed names that are in more than one column with different
+    numbers, decide which column to use: a column named T4 that holds S0 + T4
+    is recognised by itself; for the rest the user is asked. Changes table.
+    Returns {state: {'state' and/or 'sum'}}: the kind of column chosen here.
+    """
+    chosen = {}
+    needed = [("state", "S0")] + [(kind, state) for state in states if state != "S0"
+                                  for kind in ("state", "sum")]
+    if not any(label in table.ambiguous for label in needed):
+        return chosen
+    say("")
+    say("  Some names are in more than one column of the sheet, with different numbers.")
+    shown_from = short_list([table.geometries[key][0] for key in natural_sorted(table.geometries)][:3])
+    if ("state", "S0") in table.ambiguous:                 # S0 first: it is needed below
+        say("  (the numbers shown are those of {0})".format(shown_from))
+        ask_which_column(table, ("state", "S0"), chosen)
+    s0_col = table.state_columns.get("S0")
+    for label in needed[1:]:
+        if label not in table.ambiguous or label[0] != "state" or s0_col is None:
+            continue
+        cols = table.ambiguous[label]
+        added = [col for col in cols
+                 if any(holds_s0_added(table, other, col, s0_col) for other in cols if other != col)]
+        plain = [col for col in cols if col not in added]
+        if added and len(plain) == 1 and same_column_numbers(table, added):
+            state = label[1]
+            say("  Column {0} '{1}' holds S0 + {1} (checked for every geometry), so column {2}"
+                .format(column_letter(added[0]), state, column_letter(plain[0])))
+            say("  is used as {0} (and S0 is added to it as usual).".format(state))
+            table.column_label(label, plain[0])
+            chosen.setdefault(state, set()).add("state")
+            if state not in table.sum_columns:
+                table.sum_columns[state] = added[0]
+    left = [label for label in needed if label in table.ambiguous]
+    if not left:
+        return chosen
+    say("  (the numbers shown are those of {0})".format(shown_from))
+    if len(left) == 1:
+        ask_which_column(table, left[0], chosen)
+        return chosen
+    for label in left:
+        say("      {0}:".format(label_name(label)))
+        for col in table.ambiguous[label]:
+            say("          " + column_preview(table, col))
+    sets = min(len(table.ambiguous[label]) for label in left)
+    options = []
+    for number in range(sets):
+        options.append("the {0} column of each name:  {1}".format(
+            ORDINALS[number] if number < len(ORDINALS) else "number {0}".format(number + 1),
+            ", ".join(column_letter(table.ambiguous[label][number]) for label in left)))
+    options.append("choose for each name separately")
+    choice = ask_choice("  Which columns should be used?", options)
+    for label in left:
+        if choice < sets:
+            table.column_label(label, table.ambiguous[label][choice])
+            chosen.setdefault(label[1], set()).add(label[0])
+        else:
+            ask_which_column(table, label, chosen)
+    return chosen
+
+
+# ---------------------------------------------------------------------------
 # The energies that go into the sheet (S0 added)
 # ---------------------------------------------------------------------------
 def fmt_ev(value):
     return "(empty)" if value is None else "{0:.6g}".format(value)
 
 
-def resolve_energies(table, states, plain):
+def resolve_energies(table, states, plain, chosen=None):
     """
     For every state: ({geometry key: energy or None}, description of where it
     comes from, short name such as 'S0 + T4'). May ask the user which numbers to use.
+    chosen: {state: kinds of column picked when a name was in two columns}; if
+    only the plain column (or only the S0+ column) was picked, that one is
+    followed without asking again.
     """
+    chosen = chosen or {}
     result = OrderedDict()
     s0_col = table.state_columns.get("S0")
     if s0_col is not None:
@@ -1080,6 +1203,19 @@ def resolve_energies(table, states, plain):
             differ = [key for key in natural_sorted(table.geometries)
                       if from_sum[key] is not None and from_parts[key] is not None
                       and abs(from_sum[key] - from_parts[key]) > SUM_TOLERANCE]
+            follow = chosen.get(state, set())
+            if differ and len(follow) == 1:
+                kind = list(follow)[0]
+                say("")
+                say("  Note: {0} is not S0 + {1} for {2} geometr{3}.".format(
+                    sum_text, state, len(differ), "y" if len(differ) == 1 else "ies"))
+                say("  Column {0} is used for {1} (see above), so {2} is used.".format(
+                    column_letter(part_col if kind == "state" else sum_col),
+                    state if kind == "state" else "S0+" + state,
+                    parts_text if kind == "state" else sum_text))
+                result[state] = ((from_parts if kind == "state" else from_sum),
+                                 (parts_text if kind == "state" else sum_text), short)
+                continue
             if differ:
                 say("")
                 warn("In the sheet, {0} is not equal to S0 + {1} for {2} geometr{3}:".format(
@@ -1791,23 +1927,67 @@ def folder_is_writable(folder):
     return os.path.isdir(folder) and os.access(folder, os.W_OK | os.X_OK)
 
 
-def ask_for_output_folder(reason):
-    warn(reason)
+def can_make_folder(folder):
+    """True if folder does not exist yet but can be made (its nearest existing parent is writable)."""
+    parent = folder
+    while not os.path.exists(parent):
+        up = os.path.dirname(parent)
+        if up == parent:
+            return False
+        parent = up
+    return folder_is_writable(parent)
+
+
+def ask_for_output_folder(default):
+    """Returns (folder for soc_plot.ods, True if that folder must still be made)."""
+    name = OUTPUT_STEM + OUTPUT_EXTENSION
+    say("")
+    say(LINE)
+    say("4. Where should {0} be saved?".format(name))
+    say("  Type the folder (Tab completes names). A new folder is made if needed.")
+    say("  Or just press Enter to save it next to the energies sheet:")
+    say("      " + default)
+    say(LINE)
     while True:
-        raw = ask("Folder to save soc_plot.ods in: ")
+        raw = ask("Folder for {0}: ".format(name))
         if not raw.strip():
-            warn("Please type a path (or press Ctrl+C to stop).")
+            folder = default
+        elif re.match(r"^\s*['\"]?https?://", raw):
+            warn("This is a web link. Please type a folder on this computer; to put the sheet")
+            warn("on Google Drive, upload {0} there afterwards.".format(name))
             continue
-        folder = existing_path_from(raw, "Folder")
-        if folder is None:
+        else:
+            found, guess, suggestions = find_path(raw)
+            folder = found or guess
+            if found is None and suggestions:
+                warn("Folder not found:  " + guess)
+                picked = pick_suggestion(suggestions)
+                if picked is not None:
+                    folder = picked
+            if folder.lower().endswith(OUTPUT_EXTENSION) and not os.path.isdir(folder):
+                say("  This is a file name; the sheet is always called {0}, so it is".format(name))
+                say("  saved in the folder of that name:  " + os.path.dirname(folder))
+                folder = os.path.dirname(folder)
+            elif os.path.isfile(folder):
+                warn("This is a file, not a folder:  " + folder)
+                continue
+        folder = os.path.abspath(folder)
+        if os.path.isdir(folder):
+            if not folder_is_writable(folder):
+                warn("You cannot write in this folder:  " + folder)
+                warn("Please type another folder.")
+                continue
+            say("  OK, {0} will be saved in:  {1}".format(name, folder))
+            return folder, False
+        if os.path.exists(folder):
+            warn("This is not a folder:  " + folder)
             continue
-        if not os.path.isdir(folder):
-            warn("This is a file, not a folder:  " + folder)
+        if not can_make_folder(folder):
+            warn("This folder does not exist and cannot be made here:  " + folder)
             continue
-        if not folder_is_writable(folder):
-            warn("You cannot write in this folder:  " + folder)
-            continue
-        return folder
+        say("  This folder does not exist yet:  " + folder)
+        if ask_yes_no("  Make it (only after you confirm the summary)?"):
+            return folder, True
 
 
 # ---------------------------------------------------------------------------
@@ -1826,7 +2006,7 @@ def show_soc_table(blocks, pairs):
 
 
 def show_summary(sheet_path, table, soc_dir, pairs, energies, blocks, problems, example,
-                 older, output_folder):
+                 older, output_folder, new_folder):
     say("")
     say(LINE)
     say("SUMMARY")
@@ -1867,7 +2047,9 @@ def show_summary(sheet_path, table, soc_dir, pairs, energies, blocks, problems, 
         len(blocks), short_list(block.label for block in blocks) if blocks else "none"))
     final = os.path.join(output_folder, OUTPUT_STEM + OUTPUT_EXTENSION)
     say("  Will write                 : " + final)
-    if os.path.lexists(final):
+    if new_folder:
+        say("  (the folder {0} does not exist yet; it will be made)".format(output_folder))
+    elif os.path.lexists(final):
         say("  ({0} is already there; it will be kept as {1})".format(
             OUTPUT_STEM + OUTPUT_EXTENSION, free_old_name(output_folder)))
     say(LINE)
@@ -1903,7 +2085,8 @@ def main():
     sheet_path, table = ask_for_sheet()
     pairs, plain = ask_for_transitions(table)
     states = sorted(set(state for pair in pairs for state in pair), key=state_sort_key)
-    energies = resolve_energies(table, states, plain)
+    chosen = settle_duplicates(table, states)
+    energies = resolve_energies(table, states, plain, chosen)
     soc_dir, subs, links = ask_for_soc_singlet()
 
     pid = running_pid(soc_dir, RUN_INIT_LOCK, "run_init")
@@ -1926,16 +2109,14 @@ def main():
         warn("soc_singlet/g1.com. Nothing has been written.")
         return 1
 
+    output_folder, new_folder = ask_for_output_folder(os.path.dirname(sheet_path))
+
     say("")
     say("  Reading {0} in {1} sub-folder(s) ...".format(SOC_OUT, len(subs) + len(links)))
     blocks, problems, example, older = collect(table, energies, pairs, soc_dir, subs + links)
 
-    output_folder = os.path.dirname(sheet_path)
-    if not folder_is_writable(output_folder):
-        output_folder = ask_for_output_folder(
-            "You cannot write in the folder of the energies sheet ({0}).".format(output_folder))
     show_summary(sheet_path, table, soc_dir, pairs, energies, blocks, problems, example,
-                 older, output_folder)
+                 older, output_folder, new_folder)
     if not blocks:
         say("")
         warn("No geometry has everything that is needed, so there is nothing to write.")
@@ -1954,6 +2135,15 @@ def main():
     if not ask_yes_no(question):
         say("  Nothing has been written.")
         return 0
+    if new_folder:
+        try:
+            os.makedirs(output_folder)
+        except OSError as err:
+            say("")
+            warn("Could not make the folder {0}: {1}".format(
+                output_folder, getattr(err, "strerror", None) or err))
+            warn("Nothing has been written.")
+            return 1
     wait_until_closed(output_folder)
     try:
         final, kept = write_output(output_folder, data, expected)
